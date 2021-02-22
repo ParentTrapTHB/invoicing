@@ -1,0 +1,65 @@
+SELECT DISTINCT ON (crm_customer_id)
+a.crm_customer_id,
+b.partner_policy_id,
+a.senior_name,
+a.partner,
+b.partner_extra_data ->> 'cic_needed' as cic_needed,
+snap.data ->> 'Does this assessment include a CIC?' CIC_Included,
+snap.data->> 'CIC_InsuredInfo_FirstName' as CIC_firstname,
+COALESCE((data ->> 'Were you able to obtain a copy of the Service Plan?') ILIKE '%yes%', FALSE) plan_of_service,
+CASE WHEN (data->> 'If “yes”, upload a copy of the Service Plan with the completed assessment. Page 1.' ) IS NULL THEN FALSE else TRUE END service_plan_provided,
+d.form_type as file_manually_uploaded,
+c.completed_date::date,
+(b.generic_process_mapping_data_extra_data ->> 'bea_complete_date')::date as bea_completed_date,
+(b."generic_process_mapping_data_extra_data" ->> 'bea_scheduled_date')::date as bea_scheduled_date,
+(b.partner_extra_data ->> 'bea_type') as bea_type,
+(b.generic_process_mapping_data_extra_data ->> 'is_telephonic') as is_telephonic,
+--P10 Telephonic Switch QA Fields
+data->> 'If yes, please explain the reason' as seating_demo_unable,
+data->> 'Please explain the reason' as standing_demo_unable,
+--P5i Telephonic Switch QA Fields
+data->> 'ADL_Mobility_ObservedWhyNot' as ADL_Mobility_ObservedWhyNot,
+data->> 'ADL_Mobility_WhyUnable' as ADL_Mobility_WhyUnable,
+data->> 'ADL_Bathing_ObservedWhyNot' as ADL_Bathing_ObservedWhyNot,
+data->> 'ADL_Bathing_WhyUnable' as ADL_Bathing_WhyUnable,
+
+(b.generic_process_mapping_data_extra_data ->> 'video_software') as video_software_used,
+(b.generic_process_mapping_data_extra_data ->> 'gocanvas_submission_link') gocanvas_link,
+a."pdata_extra_data" ->> 'claim_id' as claim_id,
+b.partner_extra_data ->> 'carrier_code' as carrier_code,
+b.generic_process_current_stage_name as current_stage
+FROM external_dw.external_customer_view a
+FULL JOIN external_dw.generic_process_customer b
+ON a.crm_customer_id = b.crm_customer_id 
+FULL JOIN	
+	(SELECT DISTINCT
+			-- the interval command shifts the datetime to the correct period as this is recorded in UTC
+			MIN(timestamp - INTERVAL '5 hour') as completed_date,
+			related_ids ->> 'crm_customer_id' as crm_customer_id
+		FROM
+			"external_dw"."external_crm_global_event"
+		WHERE ("type" ILIKE  E'%stage\\_change\\_event%') 
+    	AND ("description" ILIKE '%to____complete%') OR ("description" ILIKE '%to____bea_sent%')
+    	GROUP BY related_ids ->> 'crm_customer_id')c
+ON c.crm_customer_id::text = a.crm_customer_id::text
+
+FULL JOIN 
+	(SELECT
+		uploadedfile_id,
+		form_type,
+		uploaded_at,
+		customergenericprocessmapping_id
+
+		FROM crm_uploadedfile_generic_process_mappings FULL JOIN crm_uploadedfile
+		ON crm_uploadedfile_generic_process_mappings.id = crm_uploadedfile.id
+		WHERE ("form_type" ILIKE '%POC%' OR "form_type" ILIKE '%BEA%')) d
+ON b.generic_process_mapping_id = d.customergenericprocessmapping_id
+
+		
+FULL JOIN crm_gocanvassubmissionsnapshot snap
+ON a.crm_customer_id::text = snap.data->> 'Referral_CRM_ID'
+-- SELECT FOR PARTNER and COMPLETE in the correct billing month 
+WHERE 
+	partner = 'partner_10'
+	AND date_trunc('month', completed_date::date) = '2021-01-01'
+	AND (b.generic_process_current_stage_name ILIKE '%complete%' OR b.generic_process_current_stage_name ILIKE '%bea_sent%');
