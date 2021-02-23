@@ -2,6 +2,7 @@
 BEA invoicing codes, queries, instructions, and more.
 
 **Notes about the main invoicing aggreation query**
+
 POCs (Service Plans) are only necessary for P10 as far as billing. We pull 2 pieces of info for this: was the assessor able to obtain the service plan, and if they did, did they actually upload it. This is mostly because we had some instances where they indicated they obtain the POC, but just didn't upload to GoCanvas. These service plans/POCs are only relevant if the insured lives in an ALF.
 
 CICs are only relevant for P5i and are specifically requested by the partner (shown/stored in the cic_needed field in the database). We bill for CICs on the invoice in instances where CIC_needed is TRUE and the CIC was actually completed in GoCanvas (indicated by the CIC_Included and CIC_firstname fields in the query). If both of these are not true, we do not bill for the CIC.
